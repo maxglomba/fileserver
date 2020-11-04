@@ -1,1 +1,4 @@
 /node_modules
+/temp/documents/*.html
+/temp/documents/*.pdf
+/temp/download/*.zip
