@@ -48,6 +48,7 @@ app.post('/files', async function (req, res) {
         let docsFolder = path.resolve( __dirname, '../../temp/documents/');
         fsextra.emptyDirSync(docsFolder);
         let downloadFolder = path.resolve( __dirname, '../../temp/download/');
+        fsextra.emptyDirSync(downloadFolder);
         let objRes = {};
         // Inicializo variable para saber la cantidad de variables del archivo 
         let cantVar = 0;
