@@ -1,6 +1,6 @@
 let cola = [];
 let procesando = [];
-let limit = 3;
+let limit = 1;
 let lastLogMsg;
 let openMsg = false;
 process.on('message', async ( data ) => {
