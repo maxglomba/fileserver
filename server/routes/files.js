@@ -9,27 +9,25 @@ const archiver = require('archiver');	//libreria para zips
 const { rest, identity } = require('underscore');
 const convertHTMLToPDF = require("pdf-puppeteer");
 const pdf = require('pdf-creator-node');
-var ip = require('ip');
+const ip = require('ip');
 const fetch = require('node-fetch');
+const colors = require('colors');
+const fork = require('child_process').fork;
 
 
 
 // const Usuario = require('../models/usuario');
 const app = express();
-
-
-
-app.get('/files/:id', function (req, res) {
-    res.json({endpoint: 'get files'});
+app.get('/files', function (req, res) {
+    setTimeout( ()=>{
+        res.json({endpoint: 'get files'});
+    },3000);
+   
 });
-
 app.post('/files', async function (req, res) {
-
-    if(process.env.PORT === '7070'){
-       
-       
+        req.setTimeout(9999999);
         let body = req.body;
-       
+        let downloadedZip = false;
         let cantidad = Number(body.cantidad);
         let template;
         switch (body.template) {
@@ -54,11 +52,11 @@ app.post('/files', async function (req, res) {
         let cantVar = 0;
         // Array con todas las variables que va a tener el archivo 
         let variables = [];
-
+        let filesToDownload = [];
         if(fs.existsSync(template)){
             htmlstr = await fs.readFileSync(template, 'utf-8');
 
-        
+            let worker = fork('./server/pdfWorker.js');
             //genero todos los html
             for (let i = 0; i < cantidad; i++) {
                 let docPath = path.resolve(docsFolder + '/doc-' + i + '.pdf');
@@ -164,109 +162,73 @@ app.post('/files', async function (req, res) {
                     border: pageBorders
                 };
 
+
                 
-                // Creo el .pdf
-                let createdPdf = await htmlToPdf(document, options);
-                
-                //await fs.writeFileSync(docPath, htmlstr,{encoding:'binary'});
-            }
-        }
-        let filesCreated = await fs.readdirSync(docsFolder);
-        if(filesCreated.length === 1){
-            objRes = {
-                status:"OK",
-                name: filesCreated[0],
-                path:  docsFolder + '/' + filesCreated[0],
-                type: 'application/pdf'
-            };
-        }else if(filesCreated.length > 1){
-            let ZipFolderName = 'zip-' + Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 5);
-            let pathZipFile = path.resolve(__dirname, downloadFolder + "/" + ZipFolderName);
-            await fs.mkdirSync(pathZipFile);
-            //creo el zip y lo retorno para descargar
-            const createdZipFile = await createZipFile(pathZipFile + '/Documentos-Generados.zip', docsFolder);
-            
-            objRes = {
-                status:"OK",
-                name: 'Documentos-Generados.zip',
-                path: pathZipFile + '/Documentos-Generados.zip',
-                type: 'application/zip'
-            };
-        }else{
-            return res.status(400).json({ok:'false', error:"No se genero ningun documento"});
-        }
+                worker.on('message', async({}) => {
+                    let filesCreated = await fs.readdirSync(docsFolder);
+                    //chequeo si ya se crearon todos los archivos, sino vuelvo a llamar al worker sin data, asi envia los docs de cola a proceso, hasta que llegue a ser el mismo numero de docs que los solicitados
+                    if(filesCreated.length < Number(cantidad)){
+                        worker.send({});
+                    }
+                    //si ya llegue a la cantidad, voy a llamar al worker que va a crear el zip
+                    if(filesCreated.length === Number(cantidad)){
+                       
+                        if(filesCreated.length === 1){
+                            objRes = {
+                                status:"OK",
+                                name: filesCreated[0],
+                                path:  docsFolder + '/' + filesCreated[0],
+                                type: 'application/pdf'
+                            };
+                            let stat = fs.statSync(objRes.path);
+                            let options = {
+                                headers: {
+                                'Content-Description': 'File Transfer',
+                                'Content-Type': 'application/pdf',
+                                'Content-type': 'application/octet-stream',
+                                'Content-Type': 'application/force-download',
+                                'Content-Disposition': 'attachment; filename=' + objRes.name + '; charset=utf-8',
+                                'Content-Length': stat.size,
+                                'X-Content-NameFile':  objRes.name,
+                                'Access-Control-Allow-Headers': 'X-Content-NameFile',
+                                'Access-Control-Expose-Headers': 'X-Content-NameFile'
+                                }
+                              };
+                            return res.download(objRes.path, objRes.name, options)
 
-    
-        let stat = await fs.statSync(objRes.path);
-        const options = {
-            headers: {
-            'Content-Description': 'File Transfer',
-            'Content-Type': objRes.type,
-            'Content-type': 'application/octet-stream',
-            'Content-Type': 'application/force-download',
-            'Content-Disposition': 'attachment; filename=' + objRes.name + '; charset=utf-8',
-            'Content-Length': stat.size,
-            'X-Content-NameFile':  objRes.name,
-            'Access-Control-Allow-Headers': 'X-Content-NameFile',
-            'Access-Control-Expose-Headers': 'X-Content-NameFile'
-            }
-        };
-    return res.json({path:objRes.path, name:objRes.name, options});
-    }else{
-        // res.json({url: "http://" + ip.address() + ":7070/files", body: req.body});
-       let respuesta = await postData("http://" + ip.address() + ":7070/files", req.body);
-       return res.download(respuesta.path, respuesta.name, respuesta.options);
-    }
-    
+                        }else if(filesCreated.length > 1){
+                            
+                            let ZipFolderName = 'zip-' + Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 5);
+                            let pathZipFile = path.resolve(__dirname, downloadFolder + "/" + ZipFolderName);
+                            await fs.mkdirSync(pathZipFile);
+                            //creo el zip y lo retorno para descargar
+                            
+                            let worker2 = fork('./server/zipWorker.js');
+                           
+                            worker2.on('message', ({ file }) => {
+                                worker2.kill();
+                                worker.kill();
+                                console.log(colors.bgGreen("          === DESCARGANDO ZIP ===          ").black);
+                                return res.download(file.path, file.name, file.options)
+                            });
+                            if(!downloadedZip){
+                                 worker2.send({pathZipFile, nameFile:'Documentos-Generados.zip' , docsFolder});
+                                 downloadedZip = true;
+                            }
+                           
+                        }                       
+                    }
+                  
+                });
+               
+                worker.send({document: document, options: options});
+
+            }  
+        }
 });
 
 
 
-
-
-app.put('/files/:id', function (req, res) {
-     res.json({endpoint: 'put files'});
-});
-  
-app.delete('/files/:id', function (req, res) {
-    res.json({endpoint: 'delete files'});
-});
-
-// Funcion auxiliar basada en promesas para generar el zip de certificados a descargar
-function createZipFile(destinoRar, rutaCertificados){
-	return new Promise( (resolve, reject) => { 
-		// SI ya existe el archivo, lo borro 
-        if( fs.existsSync(path.resolve(__dirname, destinoRar)) ){
-            fs.unlinkSync(path.resolve(__dirname, destinoRar));
-        }
-		var output = fs.createWriteStream( path.resolve(__dirname, destinoRar) );
-	
-		let archive = archiver('zip', {
-			zlib: {level: 9} // Nivel de compresion
-		});
-		
-		// Eventos de archiver
-		output.on('close', function() {
-			resolve(0);
-		});
-		archive.on('warning', function(err) {
-			reject(err);
-		});
-		archive.on('error', function(err) {
-			reject(err);
-		});
-	 
-		// pipe archive data to the file
-		archive.pipe(output);
-		
-		// agrego los certificados al zip
-
-		archive.directory( path.resolve(__dirname, rutaCertificados) , false);
-		
-		
-		archive.finalize();
-	});
-}
 
 const obtenerValorFuncion = (valorFuncion) =>{
 
@@ -290,72 +252,5 @@ const obtenerValorFuncion = (valorFuncion) =>{
 }
 
 
-// Funcion para crear PDF
-const htmlToPdf = async(document, options) => {
-	return new Promise( (resolve, reject) => {
-		let fileName; 
-		// let optionsPuppeter = {
-		// 	path: document.fullPath,
-		// 	width: options.width,
-		// 	height: options.height,
-		// 	margin: options.border
-		// }
-		// try{
-		// 	await convertHTMLToPDF(document.html, (err, res)=>{
-		// 	return ({
-		// 		'status': 'OK',
-		// 		'ruta': (document.fullPath ? document.fullPath : fileName),
-		// 		'name': document.name
-		// 	});
-
-		// 	}, optionsPuppeter);
-
-		// }catch(error){
-		// 	console.error(error);
-		//  	return ({
-		// 		'status': 'ERROR',
-		// 		error
-		// 	});
-		// }
-		
-		//Convierto los caracteres especiales del documento a entidades HTML
-		let result = pdf.create(document, options)
-			.then( res => {
-				fileName = res.filename;
-				
-				return resolve({
-					'status': 'OK',
-					'ruta': (document.fullPath ? document.fullPath : fileName),
-					'name': document.name
-				});
-			})
-			.catch(error => {
-				console.error(error);
-				return reject(error);
-			});
-	});
-}
-
-
-// Ejemplo implementando el metodo POST:
-async function postData(url = '', data = {}) {
-    // Opciones por defecto estan marcadas con un *
-    const response = await fetch(url, {
-      method: 'POST', // *GET, POST, PUT, DELETE, etc.
-      mode: 'cors', // no-cors, *cors, same-origin
-      cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
-      credentials: 'same-origin', // include, *same-origin, omit
-      headers: {
-        'Content-Type': 'application/json'
-        // 'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      redirect: 'follow', // manual, *follow, error
-      referrerPolicy: 'no-referrer', // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
-      body: JSON.stringify(data) // body data type must match "Content-Type" header
-    }).then(resp => resp.json())
-    .catch(err => {error: err});
-
-    return response; // parses JSON response into native JavaScript objects
-  }
 
 module.exports = app; 

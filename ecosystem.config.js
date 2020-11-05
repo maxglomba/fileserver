@@ -9,17 +9,6 @@ module.exports = {
       env_production: {
         NODE_ENV: "production",
       }
-    },
-    {
-      name: "fileServer",
-      script: "./server/server2.js",
-      instances: "max",
-      env: {
-        NODE_ENV: "development",
-      },
-      env_production: {
-        NODE_ENV: "production",
-      }
     }],
   
     deploy : {
