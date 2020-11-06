@@ -6,7 +6,7 @@ process.on('message', async({ pathZipFile, nameFile, docsFolder }) => {
       let options = {
         headers: {
         'Content-Description': 'File Transfer',
-        'Content-Type': 'application/pdf',
+        'Content-Type': 'application/zip',
         'Content-type': 'application/octet-stream',
         'Content-Type': 'application/force-download',
         'Content-Disposition': 'attachment; filename=' + nameFile + '; charset=utf-8',

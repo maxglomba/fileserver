@@ -1,3 +1,5 @@
+const { encode } = require('punycode');
+
 let cola = [];
 let procesando = [];
 let limit = 1;
@@ -5,6 +7,7 @@ let lastLogMsg;
 let openMsg = false;
 process.on('message', async ( data ) => {
 	const colors = require('colors');
+	const fs = require('fs');
 	if(!openMsg){
 		console.log(colors.yellow("INICIANDO SERVICIO DE COLA DE DOCUMENTOS..."));
 		openMsg = true;
@@ -30,7 +33,10 @@ process.on('message', async ( data ) => {
 		procesando.push(cola[0]);
 		cola.splice(0,1);
 		//creo el pdf
-		let docResolve = await htmlToPdf(procesando[procesando.length-1].document, procesando[procesando.length-1].options, procesando[procesando.length-1].id);
+		//let docResolve = await htmlToPdf(procesando[procesando.length-1].document, procesando[procesando.length-1].options, procesando[procesando.length-1].id);
+
+		 await fs.writeFileSync(procesando[procesando.length-1].document.fullPath, procesando[procesando.length-1].document.html,{encoding: 'binary'});
+		 let docResolve = procesando[procesando.length-1].id;
 		//cuando resuelva la creacion lo elimino del array de procesos
 		if(docResolve){
 			procesando = procesando.filter( doc => doc.id !== docResolve);

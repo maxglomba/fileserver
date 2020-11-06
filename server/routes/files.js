@@ -59,7 +59,7 @@ app.post('/files', async function (req, res) {
             let worker = fork('./server/pdfWorker.js');
             //genero todos los html
             for (let i = 0; i < cantidad; i++) {
-                let docPath = path.resolve(docsFolder + '/doc-' + i + '.pdf');
+                let docPath = path.resolve(docsFolder + '/doc-' + i + '.html');
 
 
                 let htmlOldStrLength = 0;
@@ -178,13 +178,13 @@ app.post('/files', async function (req, res) {
                                 status:"OK",
                                 name: filesCreated[0],
                                 path:  docsFolder + '/' + filesCreated[0],
-                                type: 'application/pdf'
+                                type: 'application/html'
                             };
                             let stat = fs.statSync(objRes.path);
                             let options = {
                                 headers: {
                                 'Content-Description': 'File Transfer',
-                                'Content-Type': 'application/pdf',
+                                'Content-Type': 'application/html',
                                 'Content-type': 'application/octet-stream',
                                 'Content-Type': 'application/force-download',
                                 'Content-Disposition': 'attachment; filename=' + objRes.name + '; charset=utf-8',
@@ -197,23 +197,24 @@ app.post('/files', async function (req, res) {
                             return res.download(objRes.path, objRes.name, options)
 
                         }else if(filesCreated.length > 1){
+                            if(!downloadedZip){ 
+                                downloadedZip = true;
+                                let ZipFolderName = 'zip-' + Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 5);
+                                let pathZipFile = path.resolve(__dirname, downloadFolder + "/" + ZipFolderName);
+                                await fs.mkdirSync(pathZipFile);
+                                //creo el zip y lo retorno para descargar
+                                
+                                let worker2 = fork('./server/zipWorker.js');
                             
-                            let ZipFolderName = 'zip-' + Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 5);
-                            let pathZipFile = path.resolve(__dirname, downloadFolder + "/" + ZipFolderName);
-                            await fs.mkdirSync(pathZipFile);
-                            //creo el zip y lo retorno para descargar
+                                worker2.on('message', ({ file }) => {
+                                    worker2.kill();
+                                    worker.kill();
+                                    console.log(colors.bgGreen("          === DESCARGANDO ZIP ===          ").black);
+                                    return res.download(file.path, file.name, file.options)
+                                });
                             
-                            let worker2 = fork('./server/zipWorker.js');
-                           
-                            worker2.on('message', ({ file }) => {
-                                worker2.kill();
-                                worker.kill();
-                                console.log(colors.bgGreen("          === DESCARGANDO ZIP ===          ").black);
-                                return res.download(file.path, file.name, file.options)
-                            });
-                            if(!downloadedZip){
                                  worker2.send({pathZipFile, nameFile:'Documentos-Generados.zip' , docsFolder});
-                                 downloadedZip = true;
+                                
                             }
                            
                         }                       
